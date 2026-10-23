@@ -59,6 +59,16 @@ If all eight have the same number of games and P1–P4 arrived earlier, the guar
 
 ## Court rules, rosters and pairs
 
+A court can also use custom player criteria: add any number of inclusive rating ranges and optionally require players to be marked new. A player qualifies if their rating falls in **any** listed range or they are marked new and the host has selected “Include new players”. With no ranges and no new-player option, everyone is eligible; with only the new-player option, only new players are eligible. Players without a rating qualify when new players are included and they are marked new. The host can add or remove ranges; endpoints must be between 1 and 8 and the minimum cannot exceed the maximum.
+
+```text
+Allowed: 2.0–2.5 OR 3.0–3.5
+Example game: 2.0 + 3.5  vs  2.5 + 3.0
+New players + 2.0–2.5: either group may play, including together.
+```
+
+Players from different ranges may be mixed in the same game. Ratings help break ties between otherwise equivalent lineups; fairness, previous opponents and partners, and queue position take priority, and locked pairs remain together. This does not guarantee equal team ratings. The ranges do not require each team to contain a player from each range. Court rosters, locked groups and availability continue to apply.
+
 Session rules apply by default. A court can override them with open play, an inclusive rating range, mixed bands (minimum, split, maximum), or new players only. Assign a player to a court from Players; assigned players are restricted to that court until unassigned. “Roster only” restricts a court to its assigned players; “roster + eligible players” also admits eligible unassigned players. Open court mode admits eligible unassigned and assigned-to-this-court players. Removing a court unassigns its players. A locked pair remains on the same team until unlocked or re-paired; conflicts with roster, rating or availability can prevent a lineup.
 
 ```text

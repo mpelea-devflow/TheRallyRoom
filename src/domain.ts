@@ -1,23 +1,32 @@
-export type Rule = { mode: 'any' | 'same' | 'mixed' | 'new'; min: number; max: number; split: number };
+export type RatingRange = { min: number | null; max: number | null };
+export type Rule = { mode: 'any' | 'same' | 'mixed' | 'new' | 'custom'; min: number; max: number; split: number; ranges?: RatingRange[]; newOnly?: boolean };
 export type Player = { id: string; name: string; rating: number | null; beginner: boolean; status: 'waiting' | 'playing' | 'paused' | 'left'; joined: number; queued: number; games: number; protected: boolean; roster: string | null; pair: string | null; past: string[]; partners: string[] };
 export type Game = { teams: [[string,string],[string,string]]; started: number };
 export type Court = { id: string; name: string; override: Rule | null; rosterMode: 'open' | 'only' | 'plus'; game: Game | null };
 export type Session = { id: string; name: string; venue: string; live: boolean; clock: number; rule: Rule; players: Player[]; courts: Court[]; lockedGroups?: string[][] };
 export const defaultRule: Rule = {mode:'any', min:2, max:5, split:3};
 export const newId = () => crypto.randomUUID();
+export function validCustomRule(rule: Rule) {
+  return rule.mode !== 'custom' || (rule.ranges ?? []).every(r => typeof r.min === 'number' && Number.isFinite(r.min) && typeof r.max === 'number' && Number.isFinite(r.max) && r.min >= 1 && r.max <= 8 && r.min <= r.max);
+}
+function matchesRule(p: Player, rule: Rule) {
+  if (rule.mode === 'new') return p.beginner;
+  if (rule.mode === 'same' || rule.mode === 'mixed') return p.rating !== null && p.rating >= rule.min && p.rating <= rule.max;
+  if (rule.mode === 'custom') {
+    const ranges = rule.ranges ?? [];
+    return validCustomRule(rule) && ((!ranges.length && !rule.newOnly) || (!!rule.newOnly && p.beginner) || (p.rating !== null && ranges.some(r => p.rating! >= r.min! && p.rating! <= r.max!)));
+  }
+  return true;
+}
 export function eligible(p: Player, c: Court, rule: Rule) {
   if (p.status !== 'waiting' || (p.roster && p.roster !== c.id)) return false;
   if (c.rosterMode === 'only' && p.roster !== c.id) return false;
-  if (rule.mode === 'new') return p.beginner;
-  if (rule.mode === 'same' || rule.mode === 'mixed') return p.rating !== null && p.rating >= rule.min && p.rating <= rule.max;
-  return true;
+  return matchesRule(p, rule);
 }
 function pairs<T>(a:T[]): T[][][] { return [[[a[0],a[1]],[a[2],a[3]]],[[a[0],a[2]],[a[1],a[3]]],[[a[0],a[3]],[a[1],a[2]]]]; }
 export function validTeams(group: Player[], rule: Rule): Player[][][] {
   if (group.length !== 4 || new Set(group.map(p=>p.id)).size !== 4) return [];
-  if (rule.mode === 'same' && group.some(p=>p.rating === null || p.rating < rule.min || p.rating > rule.max)) return [];
-  if (rule.mode === 'new' && group.some(p=>!p.beginner)) return [];
-  if (rule.mode === 'mixed' && group.some(p=>p.rating === null || p.rating < rule.min || p.rating > rule.max)) return [];
+  if (group.some(p=>!matchesRule(p,rule))) return [];
   return pairs(group).filter(ts => ts.every(team => team.every(p => !p.pair || team.some(q => q.id === p.pair))) && (rule.mode !== 'mixed' || ts.every(team=>team.filter(p=>p.rating! < rule.split).length===1)));
 }
 function combinations<T>(a:T[], n:number): T[][] { if(n===0)return [[]]; return a.flatMap((x,i)=>combinations(a.slice(i+1),n-1).map(rest=>[x,...rest])); }
