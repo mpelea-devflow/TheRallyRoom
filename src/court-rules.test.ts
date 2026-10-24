@@ -64,6 +64,14 @@ describe('custom next groups',()=>{
   const {canQueueCustomGroup}=await import('./domain'); const s=queueSession();s.players[8].pair='p10';s.players[9].pair='p9';
   expect(canQueueCustomGroup(s,['p9','p11','p12','p13'])).toBe(false);expect(canQueueCustomGroup(s,['p9','p10','p11','p12'])).toBe(true);
  });
+ it('cancels a queued custom group without changing player queue state',async()=>{
+  const {cancelCustomGroup,queueCustomGroup}=await import('./domain'); const s=queueCustomGroup(queueSession(),['p9','p10','p11','p12']); const groupId=s.customGroups![0].id;
+  const before=s.players.filter(p=>['p9','p10','p11','p12'].includes(p.id)).map(p=>({id:p.id,queued:p.queued,games:p.games,status:p.status}));
+  const cancelled=cancelCustomGroup(s,groupId);
+  expect(cancelled.customGroups).toEqual([]);
+  expect(cancelled.players.filter(p=>['p9','p10','p11','p12'].includes(p.id)).map(p=>({id:p.id,queued:p.queued,games:p.games,status:p.status}))).toEqual(before);
+  expect(cancelCustomGroup(cancelled,groupId)).toBe(cancelled);
+ });
  it('waits for a compatible court instead of breaking roster restrictions',async()=>{
   const {queueCustomGroup,startGame}=await import('./domain');let s=queueCustomGroup(queueSession(),['p9','p10','p11','p12']);s.courts[0].rosterMode='only';s.players.filter(p=>['p1','p2','p3','p4'].includes(p.id)).forEach(p=>p.roster='c1');s.customGroups![0].previewsAhead=0;
   const started=startGame(s,'c1');expect(started.courts[0].game!.teams.flat()).not.toEqual(expect.arrayContaining(['p9']));expect(started.customGroups?.[0].players).toEqual(['p9','p10','p11','p12']);

@@ -87,6 +87,11 @@ export function queueCustomGroup(s:Session,ids:string[]):Session {
  if(!canQueueCustomGroup(s,ids))return s;
  return {...s,customGroups:[...(s.customGroups??[]),{id:newId(),players:[...ids],previewsAhead:2}]};
 }
+export function cancelCustomGroup(s:Session,groupId:string):Session {
+ const groups=s.customGroups??[];
+ const remaining=groups.filter(group=>group.id!==groupId);
+ return remaining.length===groups.length?s:{...s,customGroups:remaining};
+}
 export function courtPreviews(s:Session): Record<string, Game['teams'] | null> {
  const reserved = new Set<string>();
  const previews: Record<string, Game['teams'] | null> = {};
