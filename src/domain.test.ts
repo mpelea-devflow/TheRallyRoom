@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {canLockGroup,courtPreviews,defaultRule,lineup,lockGroup,nameTaken,startAvailableGames,startGame,finishGame,pausePlayer,replacePlayer,unlockGroup,upcomingGroups,type Player,type Session} from './domain';
+import {canLockGroup,courtPreviews,defaultRule,lineup,lockGroup,nameTaken,queueCustomGroup,startAvailableGames,startGame,finishGame,pausePlayer,replacePlayer,unlockGroup,upcomingGroups,type Player,type Session} from './domain';
 function setup(n=8):Session{return {id:'s',name:'Test',venue:'Club',live:true,clock:n,rule:{...defaultRule},players:Array.from({length:n},(_,i)=>({id:`p${i+1}`,name:`P${i+1}`,rating:3,beginner:false,status:'waiting' as const,joined:i+1,queued:i+1,games:0,protected:false,roster:null,pair:null,past:[],partners:[]})),courts:[{id:'c1',name:'Court 1',override:null,rosterMode:'open',game:null}]}}
 const ids=(s:Session)=>lineup(s,s.courts[0])?.flat()??[];
 describe('fair rotation',()=>{
@@ -24,4 +24,24 @@ describe('fair rotation',()=>{
  it('balances mixed skill on each team',()=>{const s=setup(4);s.rule={mode:'mixed',min:2,max:4,split:3};s.players.forEach((p,i)=>p.rating=i%2?3.5:2.5);const teams=lineup(s,s.courts[0])!;for(const team of teams)expect(team.map(id=>s.players.find(p=>p.id===id)!.rating!<3).sort()).toEqual([false,true])});
  it('counts the replacement only when the game finishes',()=>{let s=setup(5);s=startGame(s,'c1');const old=s.courts[0].game!.teams[0][0];s=pausePlayer(s,old);s=replacePlayer(s,'c1',old,'p5');s=finishGame(s,'c1');expect(s.players.find(p=>p.id===old)!.games).toBe(0);expect(s.players.find(p=>p.id==='p5')!.games).toBe(1);expect(s.players.find(p=>p.id===old)!.status).toBe('paused')});
  it('rejects a replacement that breaks a locked pair',()=>{let s=setup(5);s.players[0].pair='p2';s.players[1].pair='p1';s=startGame(s,'c1');s=pausePlayer(s,'p1');expect(replacePlayer(s,'c1','p1','p5')).toBe(s)});
+ it('rotates every available partnership before repeating one',()=>{
+  let s=lockGroup(setup(4),['p1','p2','p3','p4']); const partners:string[]=[];
+  for(let game=0;game<3;game++){
+   s=startGame(s,'c1'); const team=s.courts[0].game!.teams.find(team=>team.includes('p1'))!;
+   partners.push(team.find(id=>id!=='p1')!); s=finishGame(s,'c1');
+  }
+  expect(new Set(partners).size).toBe(3);
+ });
+ it('keeps custom reservations out of the normal fairness window and protection state',()=>{
+  const s=setup(13); s.customGroups=[{id:'custom',players:['p2','p3','p4','p5'],previewsAhead:2}];
+  const started=startGame(s,'c1');
+  expect(started.courts[0].game!.teams.flat().sort()).toEqual(['p1','p6','p7','p8']);
+  expect(started.players.filter(p=>['p2','p3','p4','p5'].includes(p.id)).every(p=>!p.protected)).toBe(true);
+ });
+ it('keeps custom-group players playing when their reserved game starts',()=>{
+  let s=setup(16); s=queueCustomGroup(s,['p9','p10','p11','p12']);
+  s=startGame(s,'c1'); s=finishGame(s,'c1'); s=startGame(s,'c1'); s=finishGame(s,'c1'); s=startGame(s,'c1');
+  expect(s.courts[0].game!.teams.flat().sort()).toEqual(['p10','p11','p12','p9']);
+  expect(s.players.filter(p=>['p9','p10','p11','p12'].includes(p.id)).every(p=>p.status==='playing')).toBe(true);
+ });
 });

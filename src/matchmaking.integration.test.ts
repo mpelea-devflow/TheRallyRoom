@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultRule, finishGame, lockGroup, lineup, startAvailableGames, type Player, type Session } from './domain';
+import { defaultRule, finishGame, lockGroup, lineup, queueCustomGroup, startAvailableGames, type Player, type Session } from './domain';
 
 function session(): Session {
   return { id: 'test', name: 'Simulation', venue: 'Test', live: true, clock: 33, rule: {...defaultRule},
@@ -65,5 +65,16 @@ describe('33-player three-court scenarios', () => {
     expect(result.courts[0].game).not.toBeNull();
     expect(result.courts[1].game).not.toBeNull();
     expect(result.courts[2].game).toBeNull();
+  });
+  it('reserves a custom group after the two published previews without distorting three-court matching', () => {
+    let s=queueCustomGroup(session(), ['p13','p14','p15','p16']);
+    s=startAvailableGames(s);
+    expect(s.courts[0].game!.teams.flat().sort()).toEqual(['p1','p2','p3','p4']);
+    expect(s.courts[1].game!.teams.flat().sort()).toEqual(['p5','p6','p7','p8']);
+    expect(s.courts[2].game!.teams.flat().sort()).toEqual(['p13','p14','p15','p16']);
+    expect(new Set(playing(s)).size).toBe(12);
+    expect(s.players.filter(p=>['p13','p14','p15','p16'].includes(p.id)).every(p=>p.status==='playing'&&!p.protected)).toBe(true);
+    s=startAvailableGames(finishGame(s,'c1'));
+    expect(s.courts[0].game!.teams.flat().sort()).toEqual(['p10','p11','p12','p9']);
   });
 });

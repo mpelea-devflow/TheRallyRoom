@@ -47,3 +47,25 @@ describe('custom court criteria',()=>{
   s.players[0].beginner=false;expect(validTeams(s.players.slice(0,4),{...defaultRule,mode:'new'})).toEqual([]);
  });
 });
+
+describe('custom next groups',()=>{
+ function queueSession(n=16): Session { const s=setup(); while(s.players.length<n){const i=s.players.length+1;s.players.push({id:`p${i}`,name:`P${i}`,rating:3,beginner:false,status:'waiting',joined:i,queued:i,games:0,protected:false,roster:null,pair:null,past:[],partners:[]});s.clock=i;} s.courts[0].override=null;s.rule=defaultRule;return s; }
+ it('protects the two visible previews from custom selection',async()=>{
+  const {canQueueCustomGroup,upcomingGroups}=await import('./domain'); const s=queueSession(); const protectedIds=upcomingGroups(s,2).flatMap(g=>g.teams.flat());
+  expect(canQueueCustomGroup(s,protectedIds)).toBe(false); expect(canQueueCustomGroup(s,['p9','p10','p11','p12'])).toBe(true);
+ });
+ it('holds a custom group after two normal previews, then starts it together',async()=>{
+  const {queueCustomGroup,startGame}=await import('./domain'); let s=queueCustomGroup(queueSession(),['p9','p10','p11','p12']);
+  expect(s.customGroups?.[0].previewsAhead).toBe(2); s=startGame(s,'c1'); expect(s.courts[0].game!.teams.flat()).not.toEqual(expect.arrayContaining(['p9'])); expect(s.customGroups?.[0].previewsAhead).toBe(1);
+  s=finishGame(s,'c1');s=startGame(s,'c1');expect(s.customGroups?.[0].previewsAhead).toBe(0);
+  s=finishGame(s,'c1');s=startGame(s,'c1');expect(s.courts[0].game!.teams.flat().sort()).toEqual(['p10','p11','p12','p9']);expect(s.customGroups).toEqual([]);
+ });
+ it('does not allow a locked pair to be split when selecting a custom group',async()=>{
+  const {canQueueCustomGroup}=await import('./domain'); const s=queueSession();s.players[8].pair='p10';s.players[9].pair='p9';
+  expect(canQueueCustomGroup(s,['p9','p11','p12','p13'])).toBe(false);expect(canQueueCustomGroup(s,['p9','p10','p11','p12'])).toBe(true);
+ });
+ it('waits for a compatible court instead of breaking roster restrictions',async()=>{
+  const {queueCustomGroup,startGame}=await import('./domain');let s=queueCustomGroup(queueSession(),['p9','p10','p11','p12']);s.courts[0].rosterMode='only';s.players.filter(p=>['p1','p2','p3','p4'].includes(p.id)).forEach(p=>p.roster='c1');s.customGroups![0].previewsAhead=0;
+  const started=startGame(s,'c1');expect(started.courts[0].game!.teams.flat()).not.toEqual(expect.arrayContaining(['p9']));expect(started.customGroups?.[0].players).toEqual(['p9','p10','p11','p12']);
+ });
+});

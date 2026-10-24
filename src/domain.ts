@@ -1,9 +1,10 @@
 export type RatingRange = { min: number | null; max: number | null };
 export type Rule = { mode: 'any' | 'same' | 'mixed' | 'new' | 'custom'; min: number; max: number; split: number; ranges?: RatingRange[]; newOnly?: boolean };
-export type Player = { id: string; name: string; rating: number | null; beginner: boolean; status: 'waiting' | 'playing' | 'paused' | 'left'; joined: number; queued: number; games: number; protected: boolean; roster: string | null; pair: string | null; past: string[]; partners: string[] };
+export type Player = { id: string; name: string; rating: number | null; beginner: boolean; status: 'waiting' | 'playing' | 'paused' | 'left'; joined: number; queued: number; games: number; protected: boolean; roster: string | null; pair: string | null; past: string[]; partners: string[]; encounters?: string[]; partnerHistory?: string[] };
 export type Game = { teams: [[string,string],[string,string]]; started: number };
 export type Court = { id: string; name: string; override: Rule | null; rosterMode: 'open' | 'only' | 'plus'; game: Game | null };
-export type Session = { id: string; name: string; venue: string; live: boolean; clock: number; rule: Rule; players: Player[]; courts: Court[]; lockedGroups?: string[][] };
+export type CustomGroup = { id:string; players:string[]; previewsAhead:number };
+export type Session = { id: string; name: string; venue: string; live: boolean; clock: number; rule: Rule; players: Player[]; courts: Court[]; lockedGroups?: string[][]; customGroups?: CustomGroup[] };
 export const defaultRule: Rule = {mode:'any', min:2, max:5, split:3};
 export const newId = () => crypto.randomUUID();
 export function validCustomRule(rule: Rule) {
@@ -31,9 +32,14 @@ export function validTeams(group: Player[], rule: Rule): Player[][][] {
 }
 function combinations<T>(a:T[], n:number): T[][] { if(n===0)return [[]]; return a.flatMap((x,i)=>combinations(a.slice(i+1),n-1).map(rest=>[x,...rest])); }
 function compare(a:number[],b:number[]) { for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return a[i]-b[i]; return 0; }
+function customReservations(s:Session) { return new Set((s.customGroups??[]).flatMap(group=>group.players)); }
+function unique(ids:string[]) { return [...new Set(ids)]; }
+function encounters(p:Player) { return p.encounters ?? p.past; }
+function partnerHistory(p:Player) { return p.partnerHistory ?? p.partners; }
 export function lineup(s:Session,c:Court,excluded: ReadonlySet<string> = new Set()): [[string,string],[string,string]] | null {
  const rule=c.override ?? s.rule;
- const pool=s.players.filter(p=>!excluded.has(p.id)&&eligible(p,c,rule)).sort((a,b)=>a.queued-b.queued).slice(0,8);
+ const reserved=customReservations(s);
+ const pool=s.players.filter(p=>!excluded.has(p.id)&&!reserved.has(p.id)&&eligible(p,c,rule)).sort((a,b)=>a.queued-b.queued).slice(0,8);
  const options = combinations(pool,4).filter(group=>{const ids=new Set(group.map(p=>p.id));return (s.lockedGroups??[]).every(locked=>!locked.some(id=>ids.has(id))||locked.every(id=>ids.has(id)))}).flatMap(group=>validTeams(group,rule).map(teams=>({group,teams})));
  if(!options.length)return null;
  const score=({group,teams}:{group:Player[],teams:Player[][]})=>{
@@ -42,20 +48,51 @@ export function lineup(s:Session,c:Court,excluded: ReadonlySet<string> = new Set
   const guard=group.reduce((sum,p)=>sum+pool.filter(q=>!chosen.has(q.id)&&q.joined<p.joined&&q.games<=p.games).length,0);
   const protectedMiss=pool.filter(p=>p.protected&&!chosen.has(p.id)).length;
   const firstMiss=chosen.has(pool[0].id)?0:1;
-  const repeats=group.reduce((sum,p)=>sum+group.filter(q=>q.id!==p.id&&p.past.includes(q.id)).length,0);
-  const partners=teams.reduce((sum,t)=>sum+(t[0].partners.includes(t[1].id)?1:0),0);
+  const repeats=group.reduce((sum,p)=>sum+group.filter(q=>q.id!==p.id&&encounters(p).includes(q.id)).length,0);
+  const partners=teams.reduce((sum,t)=>sum+(partnerHistory(t[0]).includes(t[1].id)?1:0),0);
   const balance=Math.abs(teams[0].reduce((a,p)=>a+(p.rating??0),0)-teams[1].reduce((a,p)=>a+(p.rating??0),0));
   return [guard,protectedMiss,firstMiss,repeats,partners,group.reduce((sum,p)=>sum+pool.indexOf(p),0),balance];
  };
  options.sort((a,b)=>compare(score(a),score(b)));
  return options[0].teams.map(t=>t.map(p=>p.id)) as [[string,string],[string,string]];
 }
+function balancedTeams(group:Player[],rule:Rule):Game['teams']|null {
+ const options=validTeams(group,rule); if(!options.length)return null;
+ options.sort((a,b)=>{
+  const score=(teams:Player[][])=>{
+   const partnerRepeats=teams.reduce((sum,team)=>sum+(partnerHistory(team[0]).includes(team[1].id)?1:0),0);
+   const opponentRepeats=teams[0].reduce((sum,p)=>sum+teams[1].filter(opponent=>encounters(p).includes(opponent.id)).length,0)+teams[1].reduce((sum,p)=>sum+teams[0].filter(opponent=>encounters(p).includes(opponent.id)).length,0);
+   const balance=Math.abs(teams[0].reduce((sum,p)=>sum+(p.rating??0),0)-teams[1].reduce((sum,p)=>sum+(p.rating??0),0));
+   return [partnerRepeats,opponentRepeats,balance];
+  };
+  return compare(score(a),score(b));
+ });
+ return options[0].map(t=>t.map(p=>p.id)) as Game['teams'];
+}
+function readyCustom(s:Session,c:Court,excluded:ReadonlySet<string>=new Set()):Game['teams']|null {
+ const group=s.customGroups?.[0]; if(!group||group.previewsAhead>0||group.players.some(id=>excluded.has(id)))return null;
+ const players=group.players.map(id=>s.players.find(p=>p.id===id)).filter((p):p is Player=>!!p);
+ if(players.length!==4||players.some(p=>!eligible(p,c,c.override??s.rule)))return null;
+ return balancedTeams(players,c.override??s.rule);
+}
+export function canQueueCustomGroup(s:Session,ids:string[]):boolean {
+ if(ids.length!==4||new Set(ids).size!==4||ids.some(id=>(s.customGroups??[]).some(g=>g.players.includes(id))))return false;
+ const protectedIds=new Set(upcomingGroups(s,2).flatMap(g=>g.teams.flat()));
+ if(ids.some(id=>protectedIds.has(id)))return false;
+ const players=ids.map(id=>s.players.find(p=>p.id===id));
+ if(players.some(p=>!p||p.status!=='waiting'||(p.pair&&!ids.includes(p.pair))))return false;
+ return s.courts.some(c=>balancedTeams(players as Player[],c.override??s.rule));
+}
+export function queueCustomGroup(s:Session,ids:string[]):Session {
+ if(!canQueueCustomGroup(s,ids))return s;
+ return {...s,customGroups:[...(s.customGroups??[]),{id:newId(),players:[...ids],previewsAhead:2}]};
+}
 export function courtPreviews(s:Session): Record<string, Game['teams'] | null> {
  const reserved = new Set<string>();
  const previews: Record<string, Game['teams'] | null> = {};
  for (const c of s.courts) {
   if (c.game) continue;
-  const teams = lineup(s,c,reserved);
+  const teams = readyCustom(s,c,reserved)??lineup(s,c,reserved);
   previews[c.id] = teams;
   teams?.flat().forEach(id=>reserved.add(id));
  }
@@ -66,9 +103,12 @@ export function startGame(s:Session,courtId:string,expected?:Game['teams']):Sess
  const previews=courtPreviews(next), teams=previews[courtId]; if(!teams || (expected && JSON.stringify(teams)!==JSON.stringify(expected)))return s;
  const reservedEarlier=new Set<string>();
  for (const court of next.courts) { if(court.id===courtId)break; previews[court.id]?.flat().forEach(id=>reservedEarlier.add(id)); }
- const ids=teams.flat(); const pool=next.players.filter(p=>!reservedEarlier.has(p.id)&&eligible(p,c,c.override??next.rule)).sort((a,b)=>a.queued-b.queued).slice(0,8);
+ const isCustom=next.customGroups?.[0]?.previewsAhead===0&&next.customGroups[0].players.every(id=>teams.flat().includes(id));
+ const ids=teams.flat(); const customReserved=customReservations(next); const pool=next.players.filter(p=>!reservedEarlier.has(p.id)&&!customReserved.has(p.id)&&eligible(p,c,c.override??next.rule)).sort((a,b)=>a.queued-b.queued).slice(0,8);
  const last=Math.max(...ids.map(id=>pool.findIndex(p=>p.id===id)));
- pool.forEach((p,i)=>{if(ids.includes(p.id)){p.status='playing';p.protected=false;}else if(i<last)p.protected=true;});
+ ids.forEach(id=>{const player=next.players.find(p=>p.id===id);if(player){player.status='playing';player.protected=false;}});
+ pool.forEach((p,i)=>{if(!ids.includes(p.id)&&i<last)p.protected=true;});
+ if(isCustom) next.customGroups=next.customGroups!.slice(1); else if(next.customGroups?.length) next.customGroups=next.customGroups.map(g=>({...g,previewsAhead:Math.max(0,g.previewsAhead-1)}));
  c.game={teams,started:Date.now()};return next;
 }
 export function startAvailableGames(s:Session):Session {
@@ -121,7 +161,7 @@ export function nameTaken(players:Player[], name:string):boolean {
 export function finishGame(s:Session,courtId:string):Session {
  const next=structuredClone(s), c=next.courts.find(x=>x.id===courtId); if(!c?.game)return s;
  const teams=c.game.teams, ids=teams.flat();
- for(const id of ids){const p=next.players.find(x=>x.id===id);if(!p)continue; p.games++;p.past=ids.filter(x=>x!==id);p.partners=[teams.find(t=>t.includes(id))!.find(x=>x!==id)!];p.status='waiting';p.queued=++next.clock;}
+ for(const id of ids){const p=next.players.find(x=>x.id===id);if(!p)continue; const partner=teams.find(t=>t.includes(id))!.find(x=>x!==id)!; const priorEncounters=encounters(p); const priorPartners=partnerHistory(p); p.games++;p.past=ids.filter(x=>x!==id);p.partners=[partner];p.encounters=unique([...priorEncounters,...p.past]);p.partnerHistory=unique([...priorPartners,partner]);p.status='waiting';p.queued=++next.clock;}
  c.game=null;return next;
 }
 export function pausePlayer(s:Session,id:string):Session {

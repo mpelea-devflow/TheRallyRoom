@@ -40,10 +40,10 @@ Valid choices are ranked lexicographically, with the following priorities:
 
 1. Minimize earlier-arrival safeguard violations. A violation occurs when a selected player has an earlier-arriving, unselected eligible player in the window with no more completed games. This means an earlier player is favored when a later player's next game would otherwise put them ahead. If no valid group avoids a violation, the best valid group can play so the court is not left idle. A player outside the window, unavailable or ineligible for the court is not part of this comparison.
 2. Include as many protected players as possible, then include the longest-waiting eligible player when a valid group permits it.
-3. Reduce encounters with players from the immediately previous game, then reduce repeated partners from that game. Prefer earlier queue positions next, then smaller team-rating difference as a tie-breaker.
+3. Reduce encounters and repeated partners across completed games in the current session. Prefer earlier queue positions next, then smaller team-rating difference as a tie-breaker. This rotates partnerships whenever another valid arrangement exists; locked pairs are the exception.
 4. When a game starts, any player skipped ahead of the last selected queue position becomes protected. A protected player remains protected until selected, paused or removed. Court rules and locked pairs can make it impossible to include every protected player immediately.
 
-The guardrail takes precedence over mixing and protection. As a result, equal-count earlier arrivals can keep the same group together even with other waiting players. This is a deliberate consequence of the agreed guardrail, rather than a guarantee that every game has new opponents. The implementation uses **completed** game counts, because a player replaced during a game does not receive credit for that game. In-progress games do not count until finished. Different court eligibility, pairing constraints and the empty-court exception mean the guardrail is a priority, not an absolute guarantee across all courts.
+The guardrail takes precedence over mixing and protection. As a result, equal-count earlier arrivals can keep the same group together even with other waiting players. This is a deliberate consequence of the agreed guardrail, rather than a guarantee that every game has new opponents. The implementation uses **completed** game counts, because a player replaced during a game does not receive credit for that game. In-progress games do not count until finished. Different court eligibility, pairing constraints and the empty-court exception mean the guardrail is a priority, not an absolute guarantee across all courts. Existing live sessions begin accumulating the extended encounter history after their next completed game.
 
 Example of permissible mixing when later arrivals have fewer games:
 
@@ -102,3 +102,9 @@ On finish: P5 gains a game; P2 does not.
 ```
 
 A resumed player is placed at the back of the applicable queue, preserving their court assignment. A player removed from the session is no longer eligible. There is no separate no-show status. If no valid replacement exists, the existing game remains open until the host resolves the vacancy; there is no cancellation control yet.
+
+## Custom next groups
+
+Hosts can select four waiting players and add them as a custom group. A custom group does **not** replace the two visible upcoming-game previews. Those previews remain protected: players listed in either are unavailable in the custom-group picker and are labelled “already expected in an upcoming game.”
+
+The custom group is queued after those two previews. Its members are removed from normal automatic lineup selection **and from the eight-player fairness/protection window**, so they cannot make another waiting player look bypassed. Rallyroom balances its teams while retaining locked pairs, and it starts on the next compatible court after the two normal preview games have started. A custom group waits if no court satisfies its roster and eligibility rules. After its game finishes, the group reservation clears and its players return to normal queue behavior.
